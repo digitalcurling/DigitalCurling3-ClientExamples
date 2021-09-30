@@ -1,0 +1,3 @@
+[submodule "extern/DigitalCurling"]
+	path = extern/DigitalCurling
+	url = https://github.com/digitalcurling/DigitalCurling.git
