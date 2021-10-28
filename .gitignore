@@ -17,3 +17,6 @@ _deps
 # Visual Studio with CMake
 /out/
 /.vs/
+
+# VSCode
+/.vscode/
