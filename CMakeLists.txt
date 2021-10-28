@@ -19,6 +19,9 @@ set(Boost_USE_MULTITHREADED ON)
 set(Boost_USE_STATIC_RUNTIME OFF)
 find_package(Boost 1.75 REQUIRED COMPONENTS date_time regex)
 
+# Threads
+find_package(Threads REQUIRED)
+
 # source
 add_subdirectory(ex0-template)
 add_subdirectory(ex1-stdio)
