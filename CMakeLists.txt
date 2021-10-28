@@ -20,5 +20,5 @@ set(Boost_USE_STATIC_RUNTIME OFF)
 find_package(Boost 1.75 REQUIRED COMPONENTS date_time regex)
 
 # source
-add_subdirectory(template)
+add_subdirectory(ex0-template)
 add_subdirectory(ex1-stdio)
