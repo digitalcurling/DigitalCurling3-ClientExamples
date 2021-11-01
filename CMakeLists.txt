@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.19)
 
-project(digital_curling_ai_sample
+project(digital_curling_ai_example
     VERSION 0.1.0
     LANGUAGES CXX
 )
