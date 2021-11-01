@@ -21,7 +21,7 @@ std::string game_id;
 /// <summary>
 /// 試合設定
 /// </summary>
-dc::normal_game::Setting game_setting;
+dc::game::normal::Setting game_setting;
 
 /// <summary>
 /// ストーンの物理シミュレーションを行うシミュレータの設定
@@ -34,9 +34,9 @@ std::unique_ptr<dc::simulation::ISimulatorSetting> simulator_setting;
 std::unique_ptr<dc::simulation::ISimulator> simulator;
 
 /// <summary>
-/// このクライアントのチームID．最初のエンドの先攻は<see cref="digital_curling::normal_game::TeamId::k0"/>．
+/// このクライアントのチームID．最初のエンドの先攻は<see cref="digital_curling::game::Team::k0"/>．
 /// </summary>
-dc::normal_game::TeamId team_id;
+dc::game::Team team;
 
 /// <summary>
 /// (エクストラでない)エンドの時間制限
@@ -51,7 +51,7 @@ std::chrono::seconds extra_time_limit;
 /// <summary>
 /// 現在の試合の状態
 /// </summary>
-dc::normal_game::State game_state;
+dc::game::normal::State game_state;
 
 /// <summary>
 /// 現在の残り時間．
@@ -62,12 +62,12 @@ std::array<std::chrono::seconds, 2> remaining_times;
 /// 前回の行動．<see cref="OnMyTurn"/>内で参照した場合は相手チームの行動になり，
 /// <see cref="OnOpponentTurn"/>内で参照した場合は自チームの行動になる．
 /// </summary>
-std::optional<dc::normal_game::Move> last_move;
+std::optional<dc::game::Move> last_move;
 
 /// <summary>
-/// 前回の行動結果．
+/// 前回のエンドの最終ストーン位置
 /// </summary>
-std::optional<dc::normal_game::MoveResult> last_move_result;
+std::array<std::optional<dc::Vector2>, dc::kStoneMax> last_end_stone_positions;
 
 
 
@@ -85,9 +85,9 @@ void OnInit()
 /// 自チームのターンに呼ばれます．行動を選択し，返します．
 /// </summary>
 /// <returns>選択された行動</returns>
-dc::normal_game::Move OnMyTurn()
+dc::game::Move OnMyTurn()
 {
-    dc::normal_game::Move move;
+    dc::game::Move move;
 
     // TODO AIを作る際はここを編集してください(下記のwhile文は消してください)
 
@@ -99,18 +99,18 @@ dc::normal_game::Move OnMyTurn()
             throw std::runtime_error("std::getline");
         }
         if (line == "concede") {
-            move = dc::normal_game::move::Concede();
+            move = dc::game::Concede();
             break;
         }
-        dc::normal_game::move::Shot shot;
+        dc::game::Shot shot;
         std::string shot_rotation_str;
         std::istringstream line_buf(line);
         line_buf >> shot.velocity.x >> shot.velocity.y >> shot_rotation_str;
 
         if (shot_rotation_str == "cw") {
-            shot.rotation = dc::normal_game::move::Shot::Rotation::kCW;
+            shot.rotation = dc::game::Shot::Rotation::kCW;
         } else if (shot_rotation_str == "ccw") {
-            shot.rotation = dc::normal_game::move::Shot::Rotation::kCCW;
+            shot.rotation = dc::game::Shot::Rotation::kCCW;
         } else {
             continue;
         }
@@ -150,7 +150,7 @@ void OnGameOver()
 
 int main(int argc, char const * argv[])
 {
-    constexpr auto kName = "sample";
+    constexpr auto kName = "ex1-stdio";
 
     try {
         if (argc != 3) {
@@ -211,13 +211,13 @@ int main(int argc, char const * argv[])
 
             game_id = jin.at("game_id").get<std::string>();
 
-            game_setting = jin.at("game_setting").get<dc::normal_game::Setting>();
+            game_setting = jin.at("game_setting").get<dc::game::normal::Setting>();
 
             simulator_setting = jin.at("simulator_setting").get<std::unique_ptr<dc::simulation::ISimulatorSetting>>();
 
             simulator = simulator_setting->CreateSimulator();
 
-            team_id = jin.at("team_id").get<dc::normal_game::TeamId>();
+            team = jin.at("team").get<dc::game::Team>();
 
             time_limit = std::chrono::seconds(jin.at("time_limit").get<std::chrono::seconds::rep>());
             extra_time_limit = std::chrono::seconds(jin.at("extra_time_limit").get<std::chrono::seconds::rep>());
@@ -259,19 +259,21 @@ int main(int argc, char const * argv[])
                 throw std::runtime_error("Unexpected cmd");
             }
 
-            game_state = jin.at("state").get<dc::normal_game::State>();
+            game_state = jin.at("state").get<dc::game::normal::State>();
             for (size_t i = 0; i < 2; ++i) {
                 remaining_times[i] = std::chrono::seconds(jin.at("remaining_times").at(i).get<std::chrono::seconds::rep>());
             }
-            last_move = jin.at("last_move").get<std::optional<dc::normal_game::Move>>();
-            last_move_result = jin.at("last_move_result").get<std::optional<dc::normal_game::MoveResult>>();
+            last_move = jin.at("last_move").get<std::optional<dc::game::Move>>();
+            if (auto const & jin_last_end_stone_positions = jin.at("last_end_stone_positions"); !jin_last_end_stone_positions.is_null()) {
+                jin_last_end_stone_positions.get_to(last_end_stone_positions);
+            }
 
             // if game was over
-            if (game_state.game_result) {
+            if (game_state.result) {
                 break;
             }
 
-            if (game_state.GetCurrentTeam() == team_id) { // my turn
+            if (game_state.GetCurrentTeam() == team) { // my turn
                 // [out] move
                 json jout = OnMyTurn();
                 jout["cmd"] = "move";
