@@ -1,4 +1,5 @@
-﻿#include <cstdlib>
+﻿#include <cassert>
+#include <cstdlib>
 #include <stdexcept>
 #include <deque>
 #include <iostream>
@@ -7,9 +8,10 @@
 #include "nlohmann/json.hpp"
 #include "digital_curling/digital_curling.hpp"
 
-using boost::asio::ip::tcp;
-using nlohmann::json;
-namespace dc = digital_curling;
+using namespace digital_curling;
+using namespace digital_curling::game;
+using namespace digital_curling::game::moves;
+using namespace digital_curling::simulation;
 
 namespace {
 
@@ -22,22 +24,22 @@ std::string game_id;
 /// <summary>
 /// 試合設定
 /// </summary>
-dc::game::normal::Setting game_setting;
+Setting game_setting;
 
 /// <summary>
 /// ストーンの物理シミュレーションを行うシミュレータの設定
 /// </summary>
-std::unique_ptr<dc::simulation::ISimulatorSetting> simulator_setting;
+std::unique_ptr<ISimulatorSetting> simulator_setting;
 
 /// <summary>
 /// ストーンの物理シミュレーションを行うシミュレータ
 /// </summary>
-std::unique_ptr<dc::simulation::ISimulator> simulator;
+std::unique_ptr<ISimulator> simulator;
 
 /// <summary>
 /// このクライアントのチームID．最初のエンドの先攻は<see cref="digital_curling::game::Team::k0"/>．
 /// </summary>
-dc::game::Team team;
+Team team;
 
 /// <summary>
 /// (エクストラでない)エンドの時間制限
@@ -52,7 +54,7 @@ std::chrono::seconds extra_time_limit;
 /// <summary>
 /// 現在の試合の状態
 /// </summary>
-dc::game::normal::State game_state;
+State game_state;
 
 /// <summary>
 /// 現在の残り時間．
@@ -63,12 +65,12 @@ std::array<std::chrono::seconds, 2> remaining_times;
 /// 前回の行動．<see cref="OnMyTurn"/>内で参照した場合は相手チームの行動になり，
 /// <see cref="OnOpponentTurn"/>内で参照した場合は自チームの行動になる．
 /// </summary>
-std::optional<dc::game::Move> last_move;
+std::optional<Move> last_move;
 
 /// <summary>
 /// 前回のエンドの最終ストーン位置
 /// </summary>
-std::array<std::optional<dc::Vector2>, dc::kStoneMax> last_end_stone_positions;
+std::array<std::optional<Vector2>, kStoneMax> last_end_stone_positions;
 
 
 
@@ -86,9 +88,9 @@ void OnInit()
 /// 自チームのターンに呼ばれます．行動を選択し，返します．
 /// </summary>
 /// <returns>選択された行動</returns>
-dc::game::Move OnMyTurn()
+Move OnMyTurn()
 {
-    dc::game::Shot shot;
+    Shot shot;
 
     // TODO AIを作る際はこのあたりを編集してください
 
@@ -97,13 +99,13 @@ dc::game::Move OnMyTurn()
     shot.velocity.y = 2.3995f;
 
     // ショットの回転
-    shot.rotation = dc::game::Shot::Rotation::kCCW; // 反時計回り
-    // shot.rotation = dc::game::Shot::Rotation::kCW; // 時計回り
+    shot.rotation = Shot::Rotation::kCCW; // 反時計回り
+    // shot.rotation = Shot::Rotation::kCW; // 時計回り
 
     return shot;
 
     // コンシードを行う場合
-    // return dc::game::Concede();
+    // return Concede();
 }
 
 
@@ -134,6 +136,9 @@ void OnGameOver()
 
 int main(int argc, char const * argv[])
 {
+    using boost::asio::ip::tcp;
+    using nlohmann::json;
+
     // TODO 標準出力にログを出したくない場合は false にしてください
     constexpr bool kOutputLog = true;
 
@@ -205,13 +210,13 @@ int main(int argc, char const * argv[])
 
             game_id = jin.at("game_id").get<std::string>();
 
-            game_setting = jin.at("game_setting").get<dc::game::normal::Setting>();
+            game_setting = jin.at("game_setting").get<::digital_curling::game::Setting>();
 
-            simulator_setting = jin.at("simulator_setting").get<std::unique_ptr<dc::simulation::ISimulatorSetting>>();
+            simulator_setting = jin.at("simulator_setting").get<std::unique_ptr<::digital_curling::simulation::ISimulatorSetting>>();
 
             simulator = simulator_setting->CreateSimulator();
 
-            team = jin.at("team").get<dc::game::Team>();
+            team = jin.at("team").get<::digital_curling::game::Team>();
 
             time_limit = std::chrono::seconds(jin.at("time_limit").get<std::chrono::seconds::rep>());
             extra_time_limit = std::chrono::seconds(jin.at("extra_time_limit").get<std::chrono::seconds::rep>());
@@ -259,11 +264,11 @@ int main(int argc, char const * argv[])
                 throw std::runtime_error("Unexpected cmd");
             }
 
-            game_state = jin.at("state").get<dc::game::normal::State>();
+            game_state = jin.at("state").get<::digital_curling::game::State>();
             for (size_t i = 0; i < 2; ++i) {
                 remaining_times[i] = std::chrono::seconds(jin.at("remaining_times").at(i).get<std::chrono::seconds::rep>());
             }
-            last_move = jin.at("last_move").get<std::optional<dc::game::Move>>();
+            last_move = jin.at("last_move").get<std::optional<::digital_curling::game::Move>>();
             if (auto const & jin_last_end_stone_positions = jin.at("last_end_stone_positions"); !jin_last_end_stone_positions.is_null()) {
                 jin_last_end_stone_positions.get_to(last_end_stone_positions);
             }
@@ -277,7 +282,7 @@ int main(int argc, char const * argv[])
             if (game_state.GetCurrentTeam() == team) { // my turn
                 // [out] move
                 auto move = OnMyTurn();
-                assert(!std::holds_alternative<dc::game::TimeLimit>(move));  // move type TimeLimit は使用しないで下さい．
+                assert(!std::holds_alternative<::digital_curling::game::moves::TimeLimit>(move));  // move type TimeLimit は使用しないで下さい．
                 json jout = move;
                 jout["cmd"] = "move";
 
