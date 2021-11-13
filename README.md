@@ -1,15 +1,15 @@
 # DigitalCurling-AI-example
 
-Examples of creating AI on Digital Curling
+このリポジトリはデジタルカーリングAIの作成例を提供します．
 
-## Building
+## ビルド
 
-1. Clone this repository
-1. To set up submodules, execute `git submodule update --init --recursive`
-1. Install [Boost](https://www.boost.org/)
-1. Install [CMake](https://cmake.org/)
-1. Ensure CMake is in the user `PATH`
-1. Execute the following commands
+1. このリポジトリをクローンします．
+1. サブモジュールをセットアップするために， `git submodule update --init --recursive` を実行します．
+1. [Boost](https://www.boost.org/)をインストールします．
+3. [CMake](https://cmake.org/)をインストールします．
+4. CMakeがユーザーの `PATH` に入っていることを確認します．
+5. 下記のビルドコマンドを実行します．
 
 ```
 mkdir build
@@ -17,8 +17,6 @@ cd build
 cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBOX2D_BUILD_TESTBED=OFF ..
 cmake --build . --config RelWithDebInfo
 ```
-
-:warning: If CMake could not find Boost, set the environment variable `BOOST_ROOT` to the directory in which Boost installed.
 
 ## ex0-template
 
