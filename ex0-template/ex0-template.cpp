@@ -1,96 +1,59 @@
 ﻿#include <cassert>
 #include <cstdlib>
 #include <stdexcept>
-#include <deque>
 #include <iostream>
 #include <thread>
 #include <boost/asio.hpp>
-#include "nlohmann/json.hpp"
 #include "digital_curling/digital_curling.hpp"
 
-using namespace digital_curling;
-using namespace digital_curling::game;
-using namespace digital_curling::game::moves;
-using namespace digital_curling::simulation;
+namespace dc = digital_curling;
 
 namespace {
 
 
-/// <summary>
-/// 試合の識別に使うID
-/// </summary>
-std::string game_id;
+/// \brief 試合ID
+std::string g_game_id;
 
-/// <summary>
-/// 試合設定
-/// </summary>
-Setting game_setting;
+std::string g_date_time;
 
-/// <summary>
-/// ストーンの物理シミュレーションを行うシミュレータの設定
-/// </summary>
-std::unique_ptr<ISimulatorSetting> simulator_setting;
+/// \brief このクライアントのチームID
+///
+/// 最初のエンドの先攻は \c Team::k0
+dc::Team g_team;
 
-/// <summary>
-/// ストーンの物理シミュレーションを行うシミュレータ
-/// </summary>
-std::unique_ptr<ISimulator> simulator;
+/// \brief 試合設定
+dc::GameSetting g_game_setting;
 
-/// <summary>
-/// このクライアントのチームID．最初のエンドの先攻は<see cref="digital_curling::game::Team::k0"/>．
-/// </summary>
-Team team;
+/// \brief 自チームのプレイヤー設定
+std::vector<std::unique_ptr<dc::IPlayerFactory>> g_player_factories;
 
-/// <summary>
-/// (エクストラでない)エンドの時間制限
-/// </summary>
-std::chrono::seconds time_limit;
+/// \brief 自チームのプレイヤー
+std::vector<std::unique_ptr<dc::IPlayer>> g_players;
 
-/// <summary>
-/// エクストラエンドの時間制限
-/// </summary>
-std::chrono::seconds extra_time_limit;
+/// \brief ストーンの物理シミュレータの設定
+std::unique_ptr<dc::ISimulatorFactory> g_simulator_factory;
 
-/// <summary>
-/// 現在の試合の状態
-/// </summary>
-State game_state;
+/// \brief ストーンの物理シミュレータ
+std::unique_ptr<dc::ISimulator> g_simulator;
 
-/// <summary>
-/// 現在の残り時間．
-/// </summary>
-std::array<std::chrono::seconds, 2> remaining_times;
+/// \brief 現在の試合の状態
+dc::GameState g_game_state;
 
-/// <summary>
-/// 前回の行動．<see cref="OnMyTurn"/>内で参照した場合は相手チームの行動になり，
-/// <see cref="OnOpponentTurn"/>内で参照した場合は自チームの行動になる．
-/// </summary>
-std::optional<Move> last_move;
-
-/// <summary>
-/// 前回のエンドの最終ストーン位置
-/// </summary>
-std::array<std::optional<Vector2>, kStoneMax> last_end_stone_positions;
-
-
-
-/// <summary>
-/// AIにとって準備に時間がかかる処理を行う．
-/// </summary>
-void OnInit()
+/// \brief AIにとって準備に時間がかかる処理を行う．
+///
+/// \param player_order プレイヤーの順番(デフォルトで0, 1, 2, 3)．プレイヤーの順番を変更したい場合は変更してください．
+void OnInit(std::vector<int> & player_order)
 {
     // TODO AIを作る際はここを編集してください
 }
-
-
 
 /// <summary>
 /// 自チームのターンに呼ばれます．行動を選択し，返します．
 /// </summary>
 /// <returns>選択された行動</returns>
-Move OnMyTurn()
+dc::Move OnMyTurn()
 {
-    Shot shot;
+    dc::moves::Shot shot;
 
     // TODO AIを作る際はこのあたりを編集してください
 
@@ -99,13 +62,13 @@ Move OnMyTurn()
     shot.velocity.y = 2.3995f;
 
     // ショットの回転
-    shot.rotation = Shot::Rotation::kCCW; // 反時計回り
-    // shot.rotation = Shot::Rotation::kCW; // 時計回り
+    shot.rotation = dc::moves::Shot::Rotation::kCCW; // 反時計回り
+    // shot.rotation = dc::moves::Shot::Rotation::kCW; // 時計回り
 
     return shot;
 
     // コンシードを行う場合
-    // return Concede();
+    // return dc::moves::Concede();
 }
 
 
@@ -157,22 +120,35 @@ int main(int argc, char const * argv[])
         tcp::resolver resolver(io_context);
         boost::asio::connect(socket, resolver.resolve(argv[1], argv[2]));
 
-        std::string input_buffer;
+        auto read_next_line = [&socket, input_buffer = std::string()] () mutable {
+            // read_untilの結果，input_bufferに複数行入ることがあるため，1行ずつ取り出す処理を行っている
+            if (input_buffer.empty()) {
+                boost::asio::read_until(socket, boost::asio::dynamic_buffer(input_buffer), '\n');
+            }
+            auto new_line_pos = input_buffer.find_first_of('\n');
+            auto line = input_buffer.substr(0, new_line_pos + 1);
+            input_buffer.erase(0, new_line_pos + 1);
+            return line;
+        };
 
         // [in] dc
         {
-            input_buffer.clear();
-            boost::asio::read_until(socket, boost::asio::dynamic_buffer(input_buffer), '\n');
-            if constexpr (kOutputLog) {
-                std::cout << "[in] " << input_buffer << std::flush;
-            }
+            auto const line = read_next_line();
+            auto const jin = json::parse(line);
 
-            auto const jin = json::parse(input_buffer);
             if (jin.at("cmd").get<std::string>() != "dc") {
                 throw std::runtime_error("Unexpected cmd");
             }
-            if (jin.at("version") != 1) {
-                throw std::runtime_error("Version error");
+
+            if (jin.at("version").at("major").get<int>() != 2) {
+                throw std::runtime_error("Unexpected version");
+            }
+
+            g_game_id = jin.at("game_id").get<std::string>();
+            g_date_time = jin.at("date_time").get<std::string>();
+            
+            if constexpr (kOutputLog) {
+                std::cout << "[in] dc" << std::endl;
             }
         }
 
@@ -180,117 +156,112 @@ int main(int argc, char const * argv[])
         {
             json const jout = {
                 { "cmd", "dc_ok" },
-                { "version", 1 }
+                { "name", kName }
             };
             auto const output_message = jout.dump() + '\n';
-            if constexpr (kOutputLog) {
-                std::cout << "[out] " << output_message << std::flush;
-            }
             boost::asio::write(socket, boost::asio::buffer(output_message));
+
+            if constexpr (kOutputLog) {
+                std::cout << "[out] dc_ok" << std::endl;
+            }
         }
 
 
         // [in] is_ready
         {
-            input_buffer.clear();
-            boost::asio::read_until(socket, boost::asio::dynamic_buffer(input_buffer), '\n');
-            if constexpr (kOutputLog) {
-                std::cout << "[in] " << input_buffer << std::flush;
-            }
-
-            auto const jin = json::parse(input_buffer);
+            auto const line = read_next_line();
+            auto const jin = json::parse(line);
 
             if (jin.at("cmd").get<std::string>() != "is_ready") {
                 throw std::runtime_error("Unexpected cmd");
             }
 
-            if (jin.at("rule").get<std::string>() != "normal") {
+            if (jin.at("game").at("rule").get<std::string>() != "normal") {
                 throw std::runtime_error("Unexpected rule");
             }
 
-            game_id = jin.at("game_id").get<std::string>();
+            g_team = jin.at("team").get<dc::Team>();
 
-            game_setting = jin.at("game_setting").get<::digital_curling::game::Setting>();
+            g_game_setting = jin.at("game").at("setting").get<dc::GameSetting>();
 
-            simulator_setting = jin.at("simulator_setting").get<std::unique_ptr<::digital_curling::simulation::ISimulatorSetting>>();
+            g_player_factories.clear();
+            for (auto const& jin_player_factory : jin.at("game").at("players").at(dc::ToString(g_team))) {
+                g_player_factories.emplace_back(jin_player_factory.get<std::unique_ptr<dc::IPlayerFactory>>());
+                g_players.emplace_back(g_player_factories.back()->CreatePlayer());
+            }
 
-            simulator = simulator_setting->CreateSimulator();
+            g_simulator_factory = jin.at("game").at("simulator").get<std::unique_ptr<dc::ISimulatorFactory>>();
+            g_simulator = g_simulator_factory->CreateSimulator();
 
-            team = jin.at("team").get<::digital_curling::game::Team>();
-
-            time_limit = std::chrono::seconds(jin.at("time_limit").get<std::chrono::seconds::rep>());
-            extra_time_limit = std::chrono::seconds(jin.at("extra_time_limit").get<std::chrono::seconds::rep>());
+            if constexpr (kOutputLog) {
+                std::cout << "[in] is_ready" << std::endl;
+            }
         }
-
-        OnInit();
-
+        
         // [out] ready_ok
         {
+            std::vector<int> player_order{ 0, 1, 2, 3 };
+            OnInit(player_order);
+
             json const jout = {
                 { "cmd", "ready_ok" },
-                { "name", kName }
+                { "player_order", player_order }
             };
             auto const output_message = jout.dump() + '\n';
-            if constexpr (kOutputLog) {
-                std::cout << "[out] " << output_message << std::flush;
-            }
             boost::asio::write(socket, boost::asio::buffer(output_message));
+
+            if constexpr (kOutputLog) {
+                std::cout << "[out] ready_ok" << std::endl;
+            }
         }
 
         // [in] new_game
         {
-            input_buffer.clear();
-            boost::asio::read_until(socket, boost::asio::dynamic_buffer(input_buffer), '\n');
-            if constexpr (kOutputLog) {
-                std::cout << "[in] " << input_buffer << std::flush;
-            }
+            auto const line = read_next_line();
+            auto const jin = json::parse(line);
 
-            auto const jin = json::parse(input_buffer);
             if (jin.at("cmd").get<std::string>() != "new_game") {
                 throw std::runtime_error("Unexpected cmd");
+            }
+
+            if constexpr (kOutputLog) {
+                std::cout << "[in] new_game (" << jin.at("name").at("team0") << " vs " << jin.at("name").at("team1") << std::endl;
             }
         }
 
         while (true) {
             // [in] update
-            input_buffer.clear();
-            boost::asio::read_until(socket, boost::asio::dynamic_buffer(input_buffer), '\n');
-            if constexpr (kOutputLog) {
-                std::cout << "[in] " << input_buffer << std::flush;
-            }
+            auto const line = read_next_line();
+            auto const jin = json::parse(line);
 
-            auto const jin = json::parse(input_buffer);
             if (jin.at("cmd").get<std::string>() != "update") {
                 throw std::runtime_error("Unexpected cmd");
             }
 
-            game_state = jin.at("state").get<::digital_curling::game::State>();
-            for (size_t i = 0; i < 2; ++i) {
-                remaining_times[i] = std::chrono::seconds(jin.at("remaining_times").at(i).get<std::chrono::seconds::rep>());
-            }
-            last_move = jin.at("last_move").get<std::optional<::digital_curling::game::Move>>();
-            if (auto const & jin_last_end_stone_positions = jin.at("last_end_stone_positions"); !jin_last_end_stone_positions.is_null()) {
-                jin_last_end_stone_positions.get_to(last_end_stone_positions);
-            }
+            g_game_state = jin.at("state").get<dc::GameState>();
 
+            if constexpr (kOutputLog) {
+                std::cout << "[in] update (end: " << int(g_game_state.end) << ", shot: " << int(g_game_state.shot) << ")" << std::endl;
+            }
 
             // if game was over
-            if (game_state.result) {
+            if (g_game_state.game_result) {
                 break;
             }
 
-            if (game_state.GetCurrentTeam() == team) { // my turn
+            if (g_game_state.GetNextTeam() == g_team) { // my turn
                 // [out] move
                 auto move = OnMyTurn();
-                assert(!std::holds_alternative<::digital_curling::game::moves::TimeLimit>(move));  // move type TimeLimit は使用しないで下さい．
-                json jout = move;
-                jout["cmd"] = "move";
-
+                json jout = {
+                    { "cmd", "move" },
+                    { "move", move }
+                };
                 auto const output_message = jout.dump() + '\n';
-                if constexpr (kOutputLog) {
-                    std::cout << "[out] " << output_message << std::flush;
-                }
                 boost::asio::write(socket, boost::asio::buffer(output_message));
+                
+                if constexpr (kOutputLog) {
+                    std::cout << "[out] move" << std::endl;
+                }
             } else { // opponent turn
                 OnOpponentTurn();
             }
@@ -298,15 +269,15 @@ int main(int argc, char const * argv[])
 
         // [in] game_over
         {
-            input_buffer.clear();
-            boost::asio::read_until(socket, boost::asio::dynamic_buffer(input_buffer), '\n');
-            if constexpr (kOutputLog) {
-                std::cout << "[in] " << input_buffer << std::flush;
-            }
+            auto const line = read_next_line();
+            auto const jin = json::parse(line);
 
-            auto const jin = json::parse(input_buffer);
             if (jin.at("cmd").get<std::string>() != "game_over") {
                 throw std::runtime_error("Unexpected cmd");
+            }
+
+            if constexpr (kOutputLog) {
+                std::cout << "[in] game_over" << std::endl;
             }
         }
 
@@ -315,6 +286,8 @@ int main(int argc, char const * argv[])
 
     } catch (std::exception & e) {
         std::cerr << "Exception: " << e.what() << std::endl;
+    } catch (...) {
+        std::cerr << "Unknown exception" << std::endl;
     }
 
     return 0;
