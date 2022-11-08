@@ -140,8 +140,9 @@ int main(int argc, char const * argv[])
 
         tcp::socket socket(io_context);
         tcp::resolver resolver(io_context);
-        boost::asio::connect(socket, resolver.resolve(argv[1], argv[2]));
+        boost::asio::connect(socket, resolver.resolve(argv[1], argv[2]));  // 引数のホスト，ポートに接続します．
 
+        // ソケットから1行読む関数です．バッファが空の場合，新しい行が来るまでスレッドをブロックします．
         auto read_next_line = [&socket, input_buffer = std::string()] () mutable {
             // read_untilの結果，input_bufferに複数行入ることがあるため，1行ずつ取り出す処理を行っている
             if (input_buffer.empty()) {
@@ -153,6 +154,7 @@ int main(int argc, char const * argv[])
             return line;
         };
 
+        // コマンドが予期したものかチェックする関数です．
         auto check_command = [] (nlohmann::json const& jin, std::string_view expected_cmd) {
             auto const actual_cmd = jin.at("cmd").get<std::string>();
             if (actual_cmd != expected_cmd) {

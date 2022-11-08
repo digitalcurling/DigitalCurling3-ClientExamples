@@ -66,7 +66,17 @@ bool IsInHouse(std::optional<dc::Transform> const& stone)
 
 
 
-/// \brief 目標地点と目標地点到達時の目標速度からショットの初速を推測する．
+/// \brief シミュレータFCV1において，指定地点を指定速度で通過するショットの初速を逆算します．
+/// 
+/// 使用上の注意：
+/// - この関数はシミュレータFCV1に特化した関数です．他のシミュレータには対応していません．
+///   したがって，この関数を使用した場合必然的にシミュレータFCV1に特化した思考エンジンになります．
+///  （余談：複数のシミュレータに対応したショット速度を逆算する関数をライブラリから提供しさえすれば，
+///   その関数を使用することで思考エンジンが特定のシミュレータに特化するといったことは無くなります．
+///   ただ，今後どのようなシミュレータを追加するか現状では何とも言えなく，
+///   どのようにショット速度を逆算すべきかも何とも言えないので，現状そのような関数はライブラリでは提供していません）
+/// - 関数内でシミュレータFCV1を使用して1ショット分シミュレーションを行っています．ですので，この関数の実行は高速とは言えません．
+/// - この関数は解析的にもとめたものでなく，シミュレーション結果から回帰分析で求めた関数です．したがって，特に飛距離にはある程度誤差が存在します．
 ///
 /// \param target_position 目標地点
 ///
@@ -363,8 +373,9 @@ int main(int argc, char const * argv[])
 
         tcp::socket socket(io_context);
         tcp::resolver resolver(io_context);
-        boost::asio::connect(socket, resolver.resolve(argv[1], argv[2]));
+        boost::asio::connect(socket, resolver.resolve(argv[1], argv[2]));  // 引数のホスト，ポートに接続します．
 
+        // ソケットから1行読む関数です．バッファが空の場合，新しい行が来るまでスレッドをブロックします．
         auto read_next_line = [&socket, input_buffer = std::string()] () mutable {
             // read_untilの結果，input_bufferに複数行入ることがあるため，1行ずつ取り出す処理を行っている
             if (input_buffer.empty()) {
@@ -376,6 +387,7 @@ int main(int argc, char const * argv[])
             return line;
         };
 
+        // コマンドが予期したものかチェックする関数です．
         auto check_command = [] (nlohmann::json const& jin, std::string_view expected_cmd) {
             auto const actual_cmd = jin.at("cmd").get<std::string>();
             if (actual_cmd != expected_cmd) {

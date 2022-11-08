@@ -25,4 +25,3 @@ find_package(Threads REQUIRED)
 # source
 add_subdirectory(rulebased)
 add_subdirectory(stdio)
-add_subdirectory(template)
